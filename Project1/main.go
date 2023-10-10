@@ -30,11 +30,14 @@ func main() {
 	// First-come, first-serve scheduling
 	FCFSSchedule(os.Stdout, "First-come, first-serve", processes)
 
-	//SJFSchedule(os.Stdout, "Shortest-job-first", processes)
-	//
-	//SJFPrioritySchedule(os.Stdout, "Priority", processes)
-	//
-	//RRSchedule(os.Stdout, "Round-robin", processes)
+	// Shortest Job First (preemptive) scheduling
+	SJFSchedule(os.Stdout, "Shortest Job First (preemptive)", processes)
+
+	// Shortest Job First Priority (preemptive) scheduling
+	SJFPrioritySchedule(os.Stdout, "Shortest Job First Priority (preemptive)", processes)
+
+	// Round-Robin (non-preemptive) scheduling
+	RRSchedule(os.Stdout, "Round-Robin (non-preemptive)", processes)
 }
 
 func openProcessingFile(args ...string) (*os.File, func(), error) {
@@ -127,13 +130,172 @@ func FCFSSchedule(w io.Writer, title string, processes []Process) {
 	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
 }
 
-//func SJFPrioritySchedule(w io.Writer, title string, processes []Process) { }
-//
-//func SJFSchedule(w io.Writer, title string, processes []Process) { }
-//
-//func RRSchedule(w io.Writer, title string, processes []Process) { }
+func SJFSchedule(w io.Writer, title string, processes []Process) {
+	var (
+		currentTime     int64
+		totalWait       float64
+		totalTurnaround float64
+		completedProcesses int64
+		schedule        = make([][]string, len(processes))
+	)
 
-//endregion
+	// Sort processes by arrival time and burst duration
+	sort.Slice(processes, func(i, j int) bool {
+		if processes[i].ArrivalTime == processes[j].ArrivalTime {
+			return processes[i].BurstDuration < processes[j].BurstDuration
+		}
+		return processes[i].ArrivalTime < processes[j].ArrivalTime
+	})
+
+	for len(processes) > 0 {
+		process := processes[0]
+
+		// Find the next process to execute (shortest burst duration)
+		for _, p := range processes {
+			if p.ArrivalTime <= currentTime && p.BurstDuration < process.BurstDuration {
+				process = p
+			}
+		}
+
+		waitingTime := float64(currentTime - process.ArrivalTime)
+		turnaroundTime := waitingTime + float64(process.BurstDuration)
+		totalWait += waitingTime
+		totalTurnaround += turnaroundTime
+		completedProcesses++
+		schedule[completedProcesses-1] = []string{
+			fmt.Sprint(process.ProcessID),
+			fmt.Sprint(process.Priority),
+			fmt.Sprint(process.BurstDuration),
+			fmt.Sprint(process.ArrivalTime),
+			fmt.Sprint(waitingTime),
+			fmt.Sprint(turnaroundTime),
+			fmt.Sprint(currentTime + process.BurstDuration),
+		}
+
+		currentTime += process.BurstDuration
+
+		// Remove the completed process from the slice
+		for i, p := range processes {
+			if p.ProcessID == process.ProcessID {
+				processes = append(processes[:i], processes[i+1:]...)
+				break
+			}
+		}
+	}
+
+	// Calculate averages
+	aveWait := totalWait / float64(completedProcesses)
+	aveTurnaround := totalTurnaround / float64(completedProcesses)
+	aveThroughput := float64(completedProcesses) / float64(currentTime)
+
+	outputTitle(w, title)
+	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
+}
+
+func SJFPrioritySchedule(w io.Writer, title string, processes []Process) {
+	var (
+		currentTime     int64
+		totalWait       float64
+		totalTurnaround float64
+		completedProcesses int64
+		schedule        = make([][]string, len(processes))
+	)
+
+	// Sort processes by arrival time and priority (lower number means higher priority)
+	sort.Slice(processes, func(i, j int) bool {
+		if processes[i].ArrivalTime == processes[j].ArrivalTime {
+			return processes[i].Priority < processes[j].Priority
+		}
+		return processes[i].ArrivalTime < processes[j].ArrivalTime
+	})
+
+	for len(processes) > 0 {
+		process := processes[0]
+
+		// Find the next process to execute (highest priority)
+		for _, p := range processes {
+			if p.ArrivalTime <= currentTime && p.Priority < process.Priority {
+				process = p
+			}
+		}
+
+		waitingTime := float64(currentTime - process.ArrivalTime)
+		turnaroundTime := waitingTime + float64(process.BurstDuration)
+		totalWait += waitingTime
+		totalTurnaround += turnaroundTime
+		completedProcesses++
+		schedule[completedProcesses-1] = []string{
+			fmt.Sprint(process.ProcessID),
+			fmt.Sprint(process.Priority),
+			fmt.Sprint(process.BurstDuration),
+			fmt.Sprint(process.ArrivalTime),
+			fmt.Sprint(waitingTime),
+			fmt.Sprint(turnaroundTime),
+			fmt.Sprint(currentTime + process.BurstDuration),
+		}
+
+		currentTime += process.BurstDuration
+
+		// Remove the completed process from the slice
+		for i, p := range processes {
+			if p.ProcessID == process.ProcessID {
+				processes = append(processes[:i], processes[i+1:]...)
+				break
+			}
+		}
+	}
+
+	// Calculate averages
+	aveWait := totalWait / float64(completedProcesses)
+	aveTurnaround := totalTurnaround / float64(completedProcesses)
+	aveThroughput := float64(completedProcesses) / float64(currentTime)
+
+	outputTitle(w, title)
+	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
+}
+
+func RRSchedule(w io.Writer, title string, processes []Process) {
+	var (
+		currentTime        int64
+		totalWait          float64
+		totalTurnaround    float64
+		completedProcesses int64
+		schedule           = make([][]string, len(processes))
+	)
+
+	for len(processes) > 0 {
+		process := processes[0]
+
+		waitingTime := float64(currentTime - process.ArrivalTime)
+		turnaroundTime := waitingTime + float64(process.BurstDuration)
+		totalWait += waitingTime
+		totalTurnaround += turnaroundTime
+		completedProcesses++
+		schedule[completedProcesses-1] = []string{
+			fmt.Sprint(process.ProcessID),
+			fmt.Sprint(process.Priority),
+			fmt.Sprint(process.BurstDuration),
+			fmt.Sprint(process.ArrivalTime),
+			fmt.Sprint(waitingTime),
+			fmt.Sprint(turnaroundTime),
+			fmt.Sprint(currentTime + process.BurstDuration),
+		}
+
+		currentTime += process.BurstDuration
+
+		// Remove the completed process from the slice
+		processes = processes[1:]
+	}
+
+	// Calculate averages
+	aveWait := totalWait / float64(completedProcesses)
+	aveTurnaround := totalTurnaround / float64(completedProcesses)
+	aveThroughput := float64(completedProcesses) / float64(currentTime)
+
+	outputTitle(w, title)
+	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
+}
+
 
 //region Output helpers
 
