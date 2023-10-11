@@ -299,7 +299,7 @@ func RRSchedule(w io.Writer, title string, processes []Process) {
 	for len(copyProcesses) > 0 {
 		for i := range copyProcesses {
 			if copyProcesses[i].ArrivalTime <= serviceTime {
-				burstTime := min(remainingBurst[copyProcesses[i].ProcessID], 1) // Time slice for Round-Robin is 1
+				burstTime := min(remainingBurst[copyProcesses[i].ProcessID], 1) 
 				remainingBurst[copyProcesses[i].ProcessID] -= burstTime
 
 				if remainingBurst[copyProcesses[i].ProcessID] == 0 {
