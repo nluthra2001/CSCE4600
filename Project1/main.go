@@ -132,170 +132,232 @@ func FCFSSchedule(w io.Writer, title string, processes []Process) {
 
 func SJFSchedule(w io.Writer, title string, processes []Process) {
 	var (
-		currentTime     int64
+		serviceTime     int64
 		totalWait       float64
 		totalTurnaround float64
-		completedProcesses int64
+		lastCompletion  float64
+		waitingTime     int64
 		schedule        = make([][]string, len(processes))
+		gantt           = make([]TimeSlice, 0)
+		remainingBurst   = make(map[int64]int64)
 	)
+	copyProcesses := make([]Process, len(processes))
+	copy(copyProcesses, processes)
 
-	// Sort processes by arrival time and burst duration
-	sort.Slice(processes, func(i, j int) bool {
-		if processes[i].ArrivalTime == processes[j].ArrivalTime {
-			return processes[i].BurstDuration < processes[j].BurstDuration
-		}
-		return processes[i].ArrivalTime < processes[j].ArrivalTime
-	})
-
-	for len(processes) > 0 {
-		process := processes[0]
-
-		// Find the next process to execute (shortest burst duration)
-		for _, p := range processes {
-			if p.ArrivalTime <= currentTime && p.BurstDuration < process.BurstDuration {
-				process = p
-			}
-		}
-
-		waitingTime := float64(currentTime - process.ArrivalTime)
-		turnaroundTime := waitingTime + float64(process.BurstDuration)
-		totalWait += waitingTime
-		totalTurnaround += turnaroundTime
-		completedProcesses++
-		schedule[completedProcesses-1] = []string{
-			fmt.Sprint(process.ProcessID),
-			fmt.Sprint(process.Priority),
-			fmt.Sprint(process.BurstDuration),
-			fmt.Sprint(process.ArrivalTime),
-			fmt.Sprint(waitingTime),
-			fmt.Sprint(turnaroundTime),
-			fmt.Sprint(currentTime + process.BurstDuration),
-		}
-
-		currentTime += process.BurstDuration
-
-		// Remove the completed process from the slice
-		for i, p := range processes {
-			if p.ProcessID == process.ProcessID {
-				processes = append(processes[:i], processes[i+1:]...)
-				break
-			}
-		}
+	for i := range copyProcesses {
+		remainingBurst[copyProcesses[i].ProcessID] = copyProcesses[i].BurstDuration
 	}
 
-	// Calculate averages
-	aveWait := totalWait / float64(completedProcesses)
-	aveTurnaround := totalTurnaround / float64(completedProcesses)
-	aveThroughput := float64(completedProcesses) / float64(currentTime)
+	for len(copyProcesses) > 0 {
+		shortestJobIndex := 0
+		for i := range copyProcesses {
+			if copyProcesses[i].ArrivalTime <= serviceTime {
+				if remainingBurst[copyProcesses[i].ProcessID] < remainingBurst[copyProcesses[shortestJobIndex].ProcessID] {
+					shortestJobIndex = i
+				}
+			}
+		}
+
+		shortestJob := copyProcesses[shortestJobIndex]
+		delete(remainingBurst, shortestJob.ProcessID)
+		if shortestJob.ArrivalTime > serviceTime {
+			waitingTime = shortestJob.ArrivalTime - serviceTime
+		}
+		totalWait += float64(waitingTime)
+
+		start := serviceTime + waitingTime
+		turnaround := waitingTime + shortestJob.BurstDuration
+		totalTurnaround += float64(turnaround)
+
+		completion := serviceTime + waitingTime + shortestJob.BurstDuration
+		lastCompletion = float64(completion)
+
+		schedule[len(processes)-len(copyProcesses)] = []string{
+			fmt.Sprint(shortestJob.ProcessID),
+			fmt.Sprint(shortestJob.Priority),
+			fmt.Sprint(shortestJob.BurstDuration),
+			fmt.Sprint(shortestJob.ArrivalTime),
+			fmt.Sprint(waitingTime),
+			fmt.Sprint(turnaround),
+			fmt.Sprint(completion),
+		}
+
+		serviceTime += turnaround
+
+		gantt = append(gantt, TimeSlice{
+			PID:   shortestJob.ProcessID,
+			Start: start,
+			Stop:  start + turnaround,
+		})
+
+		copyProcesses = append(copyProcesses[:shortestJobIndex], copyProcesses[shortestJobIndex+1:]...)
+	}
+
+	count := float64(len(processes))
+	aveWait := totalWait / count
+	aveTurnaround := totalTurnaround / count
+	aveThroughput := count / lastCompletion
 
 	outputTitle(w, title)
+	outputGantt(w, gantt)
 	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
 }
 
+// SJFPrioritySchedule implements Shortest Job First (SJF) Priority preemptive scheduling algorithm
 func SJFPrioritySchedule(w io.Writer, title string, processes []Process) {
 	var (
-		currentTime     int64
+		serviceTime     int64
 		totalWait       float64
 		totalTurnaround float64
-		completedProcesses int64
+		lastCompletion  float64
+		waitingTime     int64
 		schedule        = make([][]string, len(processes))
+		gantt           = make([]TimeSlice, 0)
+		remainingBurst   = make(map[int64]int64)
 	)
+	copyProcesses := make([]Process, len(processes))
+	copy(copyProcesses, processes)
 
-	// Sort processes by arrival time and priority (lower number means higher priority)
-	sort.Slice(processes, func(i, j int) bool {
-		if processes[i].ArrivalTime == processes[j].ArrivalTime {
-			return processes[i].Priority < processes[j].Priority
-		}
-		return processes[i].ArrivalTime < processes[j].ArrivalTime
-	})
-
-	for len(processes) > 0 {
-		process := processes[0]
-
-		// Find the next process to execute (highest priority)
-		for _, p := range processes {
-			if p.ArrivalTime <= currentTime && p.Priority < process.Priority {
-				process = p
-			}
-		}
-
-		waitingTime := float64(currentTime - process.ArrivalTime)
-		turnaroundTime := waitingTime + float64(process.BurstDuration)
-		totalWait += waitingTime
-		totalTurnaround += turnaroundTime
-		completedProcesses++
-		schedule[completedProcesses-1] = []string{
-			fmt.Sprint(process.ProcessID),
-			fmt.Sprint(process.Priority),
-			fmt.Sprint(process.BurstDuration),
-			fmt.Sprint(process.ArrivalTime),
-			fmt.Sprint(waitingTime),
-			fmt.Sprint(turnaroundTime),
-			fmt.Sprint(currentTime + process.BurstDuration),
-		}
-
-		currentTime += process.BurstDuration
-
-		// Remove the completed process from the slice
-		for i, p := range processes {
-			if p.ProcessID == process.ProcessID {
-				processes = append(processes[:i], processes[i+1:]...)
-				break
-			}
-		}
+	for i := range copyProcesses {
+		remainingBurst[copyProcesses[i].ProcessID] = copyProcesses[i].BurstDuration
 	}
 
-	// Calculate averages
-	aveWait := totalWait / float64(completedProcesses)
-	aveTurnaround := totalTurnaround / float64(completedProcesses)
-	aveThroughput := float64(completedProcesses) / float64(currentTime)
+	for len(copyProcesses) > 0 {
+		highestPriorityIndex := 0
+		for i := range copyProcesses {
+			if copyProcesses[i].ArrivalTime <= serviceTime {
+				if copyProcesses[i].Priority < copyProcesses[highestPriorityIndex].Priority {
+					highestPriorityIndex = i
+				}
+			}
+		}
+
+		highestPriorityJob := copyProcesses[highestPriorityIndex]
+		delete(remainingBurst, highestPriorityJob.ProcessID)
+		if highestPriorityJob.ArrivalTime > serviceTime {
+			waitingTime = highestPriorityJob.ArrivalTime - serviceTime
+		}
+		totalWait += float64(waitingTime)
+
+		start := serviceTime + waitingTime
+		turnaround := waitingTime + highestPriorityJob.BurstDuration
+		totalTurnaround += float64(turnaround)
+
+		completion := serviceTime + waitingTime + highestPriorityJob.BurstDuration
+		lastCompletion = float64(completion)
+
+		schedule[len(processes)-len(copyProcesses)] = []string{
+			fmt.Sprint(highestPriorityJob.ProcessID),
+			fmt.Sprint(highestPriorityJob.Priority),
+			fmt.Sprint(highestPriorityJob.BurstDuration),
+			fmt.Sprint(highestPriorityJob.ArrivalTime),
+			fmt.Sprint(waitingTime),
+			fmt.Sprint(turnaround),
+			fmt.Sprint(completion),
+		}
+
+		serviceTime += turnaround
+
+		gantt = append(gantt, TimeSlice{
+			PID:   highestPriorityJob.ProcessID,
+			Start: start,
+			Stop:  start + turnaround,
+		})
+
+		copyProcesses = append(copyProcesses[:highestPriorityIndex], copyProcesses[highestPriorityIndex+1:]...)
+	}
+
+	count := float64(len(processes))
+	aveWait := totalWait / count
+	aveTurnaround := totalTurnaround / count
+	aveThroughput := count / lastCompletion
 
 	outputTitle(w, title)
+	outputGantt(w, gantt)
 	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
 }
 
+// RRSchedule implements Round-Robin preemptive scheduling algorithm
 func RRSchedule(w io.Writer, title string, processes []Process) {
 	var (
-		currentTime        int64
-		totalWait          float64
-		totalTurnaround    float64
-		completedProcesses int64
-		schedule           = make([][]string, len(processes))
+		serviceTime     int64
+		totalWait       float64
+		totalTurnaround float64
+		lastCompletion  float64
+		waitingTime     int64
+		schedule        = make([][]string, len(processes))
+		gantt           = make([]TimeSlice, 0)
+		remainingBurst   = make(map[int64]int64)
 	)
+	copyProcesses := make([]Process, len(processes))
+	copy(copyProcesses, processes)
 
-	for len(processes) > 0 {
-		process := processes[0]
-
-		waitingTime := float64(currentTime - process.ArrivalTime)
-		turnaroundTime := waitingTime + float64(process.BurstDuration)
-		totalWait += waitingTime
-		totalTurnaround += turnaroundTime
-		completedProcesses++
-		schedule[completedProcesses-1] = []string{
-			fmt.Sprint(process.ProcessID),
-			fmt.Sprint(process.Priority),
-			fmt.Sprint(process.BurstDuration),
-			fmt.Sprint(process.ArrivalTime),
-			fmt.Sprint(waitingTime),
-			fmt.Sprint(turnaroundTime),
-			fmt.Sprint(currentTime + process.BurstDuration),
-		}
-
-		currentTime += process.BurstDuration
-
-		// Remove the completed process from the slice
-		processes = processes[1:]
+	for i := range copyProcesses {
+		remainingBurst[copyProcesses[i].ProcessID] = copyProcesses[i].BurstDuration
 	}
 
-	// Calculate averages
-	aveWait := totalWait / float64(completedProcesses)
-	aveTurnaround := totalTurnaround / float64(completedProcesses)
-	aveThroughput := float64(completedProcesses) / float64(currentTime)
+	for len(copyProcesses) > 0 {
+		for i := range copyProcesses {
+			if copyProcesses[i].ArrivalTime <= serviceTime {
+				burstTime := min(remainingBurst[copyProcesses[i].ProcessID], 1) // Time slice for Round-Robin is 1
+				remainingBurst[copyProcesses[i].ProcessID] -= burstTime
+
+				if remainingBurst[copyProcesses[i].ProcessID] == 0 {
+					waitingTime = serviceTime + 1 - copyProcesses[i].ArrivalTime - burstTime
+				} else {
+					waitingTime = serviceTime - copyProcesses[i].ArrivalTime
+				}
+				totalWait += float64(waitingTime)
+
+				start := serviceTime + waitingTime
+				turnaround := waitingTime + burstTime
+				totalTurnaround += float64(turnaround)
+
+				completion := serviceTime + 1
+				lastCompletion = float64(completion)
+
+				schedule[len(processes)-len(copyProcesses)] = []string{
+					fmt.Sprint(copyProcesses[i].ProcessID),
+					fmt.Sprint(copyProcesses[i].Priority),
+					fmt.Sprint(copyProcesses[i].BurstDuration),
+					fmt.Sprint(copyProcesses[i].ArrivalTime),
+					fmt.Sprint(waitingTime),
+					fmt.Sprint(turnaround),
+					fmt.Sprint(completion),
+				}
+
+				serviceTime = completion
+
+				gantt = append(gantt, TimeSlice{
+					PID:   copyProcesses[i].ProcessID,
+					Start: start,
+					Stop:  start + turnaround,
+				})
+
+				if remainingBurst[copyProcesses[i].ProcessID] == 0 {
+					copyProcesses = append(copyProcesses[:i], copyProcesses[i+1:]...)
+					break
+				}
+			}
+		}
+	}
+
+	count := float64(len(processes))
+	aveWait := totalWait / count
+	aveTurnaround := totalTurnaround / count
+	aveThroughput := count / lastCompletion
 
 	outputTitle(w, title)
+	outputGantt(w, gantt)
 	outputSchedule(w, schedule, aveWait, aveTurnaround, aveThroughput)
 }
 
+func min(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 //region Output helpers
 
